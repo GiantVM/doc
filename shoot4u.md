@@ -1,5 +1,10 @@
-## 背景
 
+本文是对[Shoot4U: Using VMM Assists to Optimize TLB Operations on Preempted vCPUs
+](http://dl.acm.org/citation.cfm?id=2892245) / patch[shoot4u](https://github.com/ouyangjn/shoot4u)的学习笔记。
+
+该方法通过直接在VMM刷TLB而不是等到相应vCPU被调度时才刷，提高了性能。同时利用了Individual-address invalidation，可以只刷指定地址。
+
+## 背景
 
 __invvpid在kvm中已经有定义：
 
@@ -25,10 +30,13 @@ static inline void __invvpid(int ext, u16 vpid, gva_t gva)
 
 * Individual-address invalidation(type=0)
     针对tag为VPID且地址为指定地址(参数传入)的
+
 * Single-context invalidation(type=1)
     针对tag为VPID的
+
 * All-contexts invalidation(type=2)
     针对除了vpid为0000H(应该是VMM)的所有
+
 * Single-context invalidation, retaining global translations(type=3)
     针对tag为VPID的TLB的，但保留global translations
 
@@ -174,11 +182,12 @@ unsigned int shoot4u_mode = SHOOT4U_MODE_DEFAULT;
 module_param(shoot4u_mode, uint, S_IRUGO | S_IWUSR);
 ```
 
-可以开启不同模式。
-0  刷掉整个tlb
-1  刷掉vpid的tlb
-2  如果有结束地址，刷掉整个tlb，否则尝试刷单个地址
-3  如果有结束地址，刷掉vpid的tlb，否则尝试刷单个地址
+可以开启不同模式：
+
+* 0  刷掉整个tlb
+* 1  刷掉vpid的tlb
+* 2  如果有结束地址，刷掉整个tlb，否则尝试刷单个地址
+* 3  如果有结束地址，刷掉vpid的tlb，否则尝试刷单个地址
 
 怀疑是当前不支持指定区域，只能单条刷?
 
@@ -296,7 +305,3 @@ void shoot4u_flush_tlb_others(const struct cpumask *cpumask,
 ```
 
 
-
-
-## 动态
-准备merge。
