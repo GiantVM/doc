@@ -1,6 +1,6 @@
 
 本文是对[Shoot4U: Using VMM Assists to Optimize TLB Operations on Preempted vCPUs
-](http://dl.acm.org/citation.cfm?id=2892245) / patch[shoot4u](https://github.com/ouyangjn/shoot4u)的学习笔记。
+](http://dl.acm.org/citation.cfm?id=2892245) / [patch](https://github.com/ouyangjn/shoot4u)的学习笔记。
 
 该方法通过直接在VMM刷TLB而不是等到相应vCPU被调度时才刷，提高了性能。同时利用了Individual-address invalidation，可以只刷指定地址。
 
@@ -29,15 +29,19 @@ static inline void __invvpid(int ext, u16 vpid, gva_t gva)
 有四种模式：
 
 * Individual-address invalidation(type=0)
+
     针对tag为VPID且地址为指定地址(参数传入)的
 
 * Single-context invalidation(type=1)
+
     针对tag为VPID的
 
 * All-contexts invalidation(type=2)
+
     针对除了vpid为0000H(应该是VMM)的所有
 
 * Single-context invalidation, retaining global translations(type=3)
+
     针对tag为VPID的TLB的，但保留global translations
 
 
@@ -113,7 +117,7 @@ static void vmx_flush_tlb_single_ctx(struct kvm_vcpu *vcpu)
 }
 ```
 
-### vmx_flush_tlb_single_ctx
+### vmx_flush_tlb_single_addr
 
 尝试刷掉单条地址。
 
@@ -167,7 +171,7 @@ static void vmx_flush_tlb_single_addr(struct kvm_vcpu *vcpu, unsigned long addr)
 +       break;
 ```
 
-注册了一种新的调用类型，当调用时通过kvm_pv_shoot4u_op进行处理。kvm_pv_shoot4u_op会根据定义的mode，去调用上文说的vmx_flush_tlb_single_ctx/vmx_flush_tlb_single_addr。
+注册了一种新的调用类型，当调用时通过kvm_pv_shoot4u_op进行处理。kvm_pv_shoot4u_op会根据定义的mode，去调用上文的vmx_flush_tlb_single_ctx/vmx_flush_tlb_single_addr。
 
 
 ### arch/x86/kvm/x86.c
@@ -225,9 +229,9 @@ static void kvm_pv_shoot4u_op(struct kvm_vcpu *vcpu, unsigned long vcpu_bitmap,
 }
 
 struct kvm_shoot4u_info {
-        struct kvm_vcpu *vcpu;
-   unsigned long flush_start;
-   unsigned long flush_end;
+    struct kvm_vcpu *vcpu;
+    unsigned long flush_start;
+    unsigned long flush_end;
 };
 
 
@@ -235,7 +239,7 @@ struct kvm_shoot4u_info {
 /* shoot4u host IPI handler with invvipd */
 static void flush_tlb_func_shoot4u(void *info)
 {
-   struct kvm_shoot4u_info *f = info;
+    struct kvm_shoot4u_info *f = info;
 
     //printk("[shoot4u] IPI handler at pCPU %d: invalidate vCPU %d\n", smp_processor_id(), f->vcpu->vcpu_id);
     if (shoot4u_mode == SHOOT4U_MODE_DEFAULT) {
