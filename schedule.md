@@ -18,3 +18,14 @@
 学习手册中VMCS部分原理
 
 结合代码，提交并讨论VMCS结构和相关所有接口的作用、实现原理，给出总结文档
+
+#### 总结
+讨论了VMCS的布局和字段。
+
+
+### 3.31
+
+#### 计划
+学习并注释kvm_arch_vcpu_create、kvm_arch_vcpu_setup和kvm_arch_vcpu_postcreate函数。
+
+
