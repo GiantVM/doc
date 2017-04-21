@@ -28,4 +28,18 @@
 #### 计划
 学习并注释kvm_arch_vcpu_create、kvm_arch_vcpu_setup和kvm_arch_vcpu_postcreate函数。
 
+#### 总结
+注释完毕
 
+
+### 4.7 + 4.14
+时钟相关。
+
+@tcbbd tsc
+@binss kvmclock
+@chrisbyd pit
+
+### 4.21
+@tcbbd tsc，生命周期
+@binss 动态迁移
+@chrisbyd 中断，中断注入
