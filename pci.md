@@ -61,6 +61,7 @@ static void ich9_lpc_class_init(ObjectClass *klass, void *data)
 ### do_pci_register_device
 对设备实例对象进行设置。
 
+```
 => 查看 bus->devices[devfn] 是否为空，如果不为空，表示位置被人占了，报错返回
 => 如果设备是hotplugged的， pci_get_function_0 如果非空，表示slot被人占了，报错返回
     => 如果bus有upstream PCIe port，则只能放在第一个slot的第一个设备，即devfn=0。否则可以放在devfn对应slot的第一个设备处
@@ -70,7 +71,7 @@ static void ich9_lpc_class_init(ObjectClass *klass, void *data)
 => 如果设备是bridge(is_bridge)， pci_init_mask_bridge
 => pci_init_multifunction
 => 设置 pci_dev->config_read 和 pci_dev->config_write ，如果在类构造函数中设置了则用设置的，否则使用默认函数 pci_default_read_config / pci_default_write_config
-
+```
 
 ## BAR(base address register)
 
@@ -387,18 +388,18 @@ static void pci_update_mappings(PCIDevice *d)
 
 对于e1000而言，在Linux启动之前(没有任何启动信息输出)，进行了以下写操作：
 
-将addr[16, 19]，即BAR0，写为 4294967295(0xffffffff)
-将addr[16, 19]，即BAR0，写为 0(0x0)
-将addr[16, 19]，即BAR0，写为 4273733632(0xfebc0000)
-将addr[20, 23]，即BAR1，写为 4294967295(0xffffffff)
-将addr[20, 23]，即BAR1，写为 1(0x1)
-将addr[20, 23]，即BAR1，写为 49152(0xc000)
-将addr[4, 5]，即COMMAND，写为 259(0x103，100000011)，响应Memory Space和I/O Space的访问。启用SERR# driver。
+* 将addr[16, 19]，即BAR0，写为 4294967295(0xffffffff)
+* 将addr[16, 19]，即BAR0，写为 0(0x0)
+* 将addr[16, 19]，即BAR0，写为 4273733632(0xfebc0000)
+* 将addr[20, 23]，即BAR1，写为 4294967295(0xffffffff)
+* 将addr[20, 23]，即BAR1，写为 1(0x1)
+* 将addr[20, 23]，即BAR1，写为 49152(0xc000)
+* 将addr[4, 5]，即COMMAND，写为 259(0x103，100000011)，响应Memory Space和I/O Space的访问。启用SERR# driver。
 
 Linux启动后，进行了以下写操作：
 
-将addr[4, 5]，即COMMAND，写为 256(0x100，100000000)，启用SERR# driver。
-将addr[4, 5]，即COMMAND，写为 259(0x103，100000011)，响应Memory Space和I/O Space的访问。启用SERR# driver。
+* 将addr[4, 5]，即COMMAND，写为 256(0x100，100000000)，启用SERR# driver。
+* 将addr[4, 5]，即COMMAND，写为 259(0x103，100000011)，响应Memory Space和I/O Space的访问。启用SERR# driver。
 
 然后发现Linux又重新做长度检测，然后写入值。将BAR1写为49153(0xc001)。目测是感知到它是IO port，将其最后一bit修正为1。
 
