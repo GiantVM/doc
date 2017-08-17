@@ -1,4 +1,5 @@
 
+
 本文将在熟悉QOM和q35架构的基础上，分析QEMU中的PCI设备是如何被初始化和挂载的。
 
 
@@ -328,57 +329,27 @@ static void pci_update_mappings(PCIDevice *d)
 3. 由于有ROM(efi-e1000.rom)，于是调用 pci_add_option_rom ，注册 PCI_ROM_SLOT 为BAR6
 4. pci_do_device_reset (调用链前面提过) 进行清理和设置
 5. KVM_EXIT_IO
-    QEMU => KVM => VM 后，当VM运行port I/O指令访问config信息时，发生VMExit，VM => KVM => QEMU：
+    QEMU => KVM => VM 后，当VM运行port I/O指令访问config信息时，发生VMExit，VM => KVM => QEMU，QEMU根据 exit_reason 得知原因是 KVM_EXIT_IO ，于是从 cpu->kvm_run 中取出 io 信息，进行以下调用：
 
     kvm_cpu_exec => kvm_handle_io => address_space_rw => address_space_read => address_space_read_full => address_space_read_continue => memory_region_dispatch_read => memory_region_dispatch_read1 => access_with_adjusted_size => memory_region_read_accessor => mr->ops->read (pci_host_data_read) => pci_data_read => pci_host_config_read_common => pci_default_read_config
 
-    于是e1000的config_read被调用，读取对应位置的配置空间信息返回给 KVM => VM。
+    于是e1000的 config_read 被调用，读取对应位置的配置空间信息返回给 KVM => VM。
 
     同理当VM需要写入config时，发生VMExit，于是 VM => KVM => QEMU，其调用链如下：
 
-    vm_cpu_exec => kvm_handle_io => address_space_rw => address_space_write => address_space_write_continue => memory_region_dispatch_write => access_with_adjusted_size => memory_region_write_accessor => mr->ops->write (pci_host_data_write) => pci_data_write => pci_host_config_write_common => pci_dev->config_write (e1000_write_config) => pci_default_write_config
+    kvm_cpu_exec => kvm_handle_io => address_space_rw => address_space_write => address_space_write_continue => memory_region_dispatch_write => access_with_adjusted_size => memory_region_write_accessor => mr->ops->write (pci_host_data_write) => pci_data_write => pci_host_config_write_common => pci_dev->config_write (e1000_write_config) => pci_default_write_config
 
-    当退回到QEMU时，QEMU根据 exit_reason 得知原因是 KVM_EXIT_IO ，于是从 cpu->kvm_run 中取出 io 信息，如 `{direction = 1, size = 4, port = 3324, count = 1, data_offset = 4096}` 。于是对 address_space_io 进行操作，根据 direction 判断是读还是写，调用 address_space_read(write) 。其通过 address_space_translate 找到地址(port)对应的 MemoryRegion 和 xlat(偏移量?)，对其进行读写。于是 address_space_read(write)_continue => memory_region_dispatch_read(write) 根据读写设置 accessor 。
+    于是e1000的 config_write 被调用，读取对应位置的配置空间信息返回给 KVM => VM。
 
-    最后来到 access_with_adjusted_size ，其调用传入的accessor，于是从 MemoryRegion 的ops成员中取出对应操作，比如 pci_host_data_le_ops ：
-
-    ```c
-    const MemoryRegionOps pci_host_data_le_ops = {
-        .read = pci_host_data_read,
-        .write = pci_host_data_write,
-        .endianness = DEVICE_LITTLE_ENDIAN,
-    };
-    ```
-
-    对于写操作，则调用 pci_host_data_write ，其会将 MemoryRegion 的opaque转换为 PCIHostState ，调用 pci_data_write 。以参数 addr=2147487760, val=4294967295, len=4 为例，此时传入的 PCIBus 为 pcie.0 ：
-
-    * pci_dev_find_by_addr  将addr(2147487760=0x80001010)右移16位截断，得到bus号，0x00；右移8位截断，得到devfn，0x10。由于当前bus的bus号就是0，因此直接取bus的devices[16]返回。该设备就是e1000
-    * 通过 `addr & (PCI_CONFIG_SPACE_SIZE - 1)`计算出 config_addr ，即要修改的值在该设备config配置空间中的偏移量。比如说 2147487760 & 0xff = 16，因此这里要修改的就是 BAR0 。
-    * pci_host_config_write_common => pci_dev->config_write (e1000_write_config) => pci_default_write_config 将 4294967295 写入 config[16:19]
+    当退回到QEMU时，QEMU根据 exit_reason 得知原因是 KVM_EXIT_IO ，于是从 cpu->kvm_run 中取出 io 信息，如 `{direction = 1, size = 4, port = 3324, count = 1, data_offset = 4096}` 。对于写操作，最后调用 pci_default_write_config 。
 
 6. KVM_EXIT_MMIO
 
-    设置完config后，在Linux完成了了对设备的初始化后，就可以进行通信了。当VM对映射的内存区域进行访问时，发生VMExit，VM => KVM => QEMU：
+    设置完config后，在Linux完成了了对设备的初始化后，就可以进行通信了。当VM对映射的内存区域进行访问时，发生VMExit，VM => KVM => QEMU，QEMU根据 exit_reason 得知原因是 KVM_EXIT_MMIO ，于是从 cpu->kvm_run 中取出 mmio 信息，进行以下调用：
 
-    address_space_rw => address_space_write => address_space_write_continue => memory_region_dispatch_write => access_with_adjusted_size => memory_region_write_accessor => e1000_mmio_write
+    kvm_cpu_exec => address_space_rw => address_space_write => address_space_write_continue => memory_region_dispatch_write => access_with_adjusted_size => memory_region_write_accessor => e1000_mmio_write
 
-    当退回到QEMU时，QEMU根据 exit_reason 得知原因是 KVM_EXIT_MMIO ，于是从 cpu->kvm_run 中取出 mmio 信息，如 `$64 = {phys_addr = 4273733840, data = "\235\000\000\000\000\000\000", len = 4, is_write = 1}` 。于是对 address_space_memory 进行操作，根据 is_write 判断是读还是写，调用 address_space_read(write) 。其通过 address_space_translate 找到地址(phys_addr)对应的 MemoryRegion 和 xlat(偏移量?)，对其进行读写。于是 address_space_read(write)_continue => memory_region_dispatch_read(write) 根据读写设置 accessor 。
-
-    最后来到 access_with_adjusted_size ，其调用传入的accessor，于是从 MemoryRegion 的ops成员中取出对应操作，比如 e1000_mmio_ops ：
-
-    ```c
-    static const MemoryRegionOps e1000_mmio_ops = {
-        .read = e1000_mmio_read,
-        .write = e1000_mmio_write,
-        .endianness = DEVICE_LITTLE_ENDIAN,
-        .impl = {
-            .min_access_size = 4,
-            .max_access_size = 4,
-        },
-    };
-    ```
-
-    对于写操作，则调用 e1000_mmio_write ，其会将 MemoryRegion 的opaque转换为 E1000State ，调用 macreg_writeops[index]。以参数addr=208, val=157, size=4为例，此时操作的地址是4273733840(0xfebc00d0)：
+    对于写操作，最终调用 e1000_mmio_write ，其会将 MemoryRegion 的opaque转换为 E1000State ，调用 macreg_writeops[index]。以参数addr=208, val=157, size=4为例，此时操作的地址是4273733840(0xfebc00d0)：
 
     `index = (addr & 0x1ffff) >> 2`，于是 index = 52。macreg_writeops[52]为 set_ims ，其在设置IMS后又调用 set_ics ，其负责设置中断，于是 set_interrupt_cause => pci_set_irq => pci_irq_handler => pci_update_irq_status ，将设备配置空间(config)的 PCI_STATUS([6:7]) 的 PCI_STATUS_INTERRUPT bit置1，表示收到INTx#信号。
 
@@ -386,7 +357,7 @@ static void pci_update_mappings(PCIDevice *d)
 
 
 
-对于e1000而言，在Linux启动之前(没有任何启动信息输出)，进行了以下写操作：
+就e1000而言，在Linux启动之前(没有任何启动信息输出)，进行了以下写操作：
 
 * 将addr[16, 19]，即BAR0，写为 4294967295(0xffffffff)
 * 将addr[16, 19]，即BAR0，写为 0(0x0)
@@ -407,6 +378,123 @@ Linux启动后，进行了以下写操作：
 
 此后在e1000的工作流程中，会在发包时调用 e1000x_rx_ready 检查是否就绪，这也需要读取 config[PCI_COMMAND] ，只有其为bus master，才能算是ready。
 
+
+
+### 补充：定位 config 区域
+
+我们发现 BIOS/OS 对设备的发现和配置是建立在能和设备的配置空间进行交互的基础上的。因此需要一种机制来让 BIOS/OS 定位到某个 PCI 设备的配置中间，也就是 QEMU 中设备的 config 成员。
+
+(根据PCI规范?)这需要通过两步走，以写入为例：
+
+1. 设置目标阶段
+    将要访问的设备地址通过 pci_host_config_write 写入到 PCIHostState 的 config_reg
+2. 设置值阶段
+    将要写入配置空间的值通过 pci_host_data_write ，通过先前写入的 config_reg 定位目标设备，调用设备对应的配置写入函数
+
+下面具体分析：
+
+在初始化host bridge的函数 q35_host_initfn 中设置了通过PIO访问设备 config 时所需要访问的 MemoryRegion ： PCIHostState.data_mem
+
+```c
+    memory_region_init_io(&phb->conf_mem, obj, &pci_host_conf_le_ops, phb,
+                          "pci-conf-idx", 4);
+    memory_region_init_io(&phb->data_mem, obj, &pci_host_data_le_ops, phb,
+                          "pci-conf-data", 4);
+```
+
+随后在 q35_host_realize 中将其和对应port绑定起来：
+
+```c
+#define MCH_HOST_BRIDGE_CONFIG_ADDR            0xcf8
+#define MCH_HOST_BRIDGE_CONFIG_DATA            0xcfc
+
+static void q35_host_realize(DeviceState *dev, Error **errp)
+{
+    ...
+    sysbus_add_io(sbd, MCH_HOST_BRIDGE_CONFIG_ADDR, &pci->conf_mem);
+    sysbus_init_ioports(sbd, MCH_HOST_BRIDGE_CONFIG_ADDR, 4);
+
+    sysbus_add_io(sbd, MCH_HOST_BRIDGE_CONFIG_DATA, &pci->data_mem);
+    sysbus_init_ioports(sbd, MCH_HOST_BRIDGE_CONFIG_DATA, 4);
+}
+```
+
+根据调试，pci-conf-idx 这个 MemoryRegion 确实 offset 为 3320 (0xcfc)，size 为 4 。而 pci-conf-data 的 offset 为 3324 (0xcfc)，size 为 4 ：
+
+```
+[struct MemoryRegion *] 0x5555569b70b0 pci-conf-idx size<4> offset<3320>
+[struct MemoryRegion *] 0x5555569b71b0 pci-conf-data size<4> offset<3324>
+```
+
+对该区域访问就是要访问 PIO 设备的 config
+
+
+[kvm_run->io.data_offset, kvm_run->io.data_offset + kvm_run->io.len] 是要写入的内容
+
+#### 设置目标阶段
+
+kvm_handle_io => address_space_rw => address_space_write => address_space_write_continue => memory_region_dispatch_write => access_with_adjusted_size => memory_region_write_accessor => mr->ops->write (pci_host_config_write)
+
+##### address_space_rw
+根据 direction 判断是 read 还是 write
+addr 为 port
+
+##### address_space_write
+
+=> mr = address_space_translate(as, addr, &addr1, &l, true)                 在AddressSpace中根据addr找到MemoryRegion，计算第一轮的 addr1
+=> address_space_write_continue(as, addr, attrs, buf, len, addr1, l, mr)
+
+因此这里的关键是 address_space_translate 。它可以根据找到地址(port)从 address_space_io 中找到 pci-conf-data 这个 MemoryRegion 和 addr1(偏移量?)
+
+##### address_space_write_continue
+memory_access_size 计算单次写入宽度，然后调用
+
+=> result |= memory_region_dispatch_write(mr, addr1, val, 4, attrs);  注意传入的是 addr1 而不是 addr
+=> address_space_translate           计算下一轮的 MemoryRegion 和 addr1
+
+因此总共调用 address_space_translate 的次数 (翻译次数) 为 写入长度 / 单次写入宽度
+
+##### memory_region_dispatch_write
+MemoryRegion 有 write 函数，则 accessor 为 memory_region_write_accessor ，作为参数传下去
+
+##### access_with_adjusted_size
+调用传入的accessor
+
+如果size为4，则会调用4次 `r |= access(mr, addr + i, value, access_size, i * 8, access_mask, attrs)`
+
+其中任意一次出错都算出错
+
+##### memory_region_write_accessor
+使用 MemoryRegion 的函数 (比如 pci_host_data_le_ops 中定义 write 为 pci_host_data_write) 操作 MemoryRegion 中存放的对象
+mr->ops->write(mr->opaque, addr, tmp, size)
+
+##### pci_host_config_write
+将 opaque 转为 PCIHostState ，将值写入 PCIHostState 的 config_reg 成员中。
+
+##### 小结
+
+在设置地址阶段，目标port为3320，于是找到 pci-conf-idx 这个 MemoryRegion，将值写入 PCIHostState 的 config_reg 成员中。
+
+对于e1000来说，这里写入的值为 2147487760(0x80001010) ，表示 e1000 的配置空间所在的地址。
+
+
+#### 设置值阶段
+
+kvm_cpu_exec => kvm_handle_io => address_space_rw => address_space_write => address_space_write_continue => memory_region_dispatch_write => access_with_adjusted_size => memory_region_write_accessor => mr->ops->write (pci_host_data_write) => pci_data_write => pci_host_config_write_common => pci_dev->config_write (e1000_write_config) => pci_default_write_config
+
+前面的调用流程和设置目标阶段一样，只是这次的 MemoryRegion 为 pci-conf-data ，因此调用 pci_host_data_write
+
+##### pci_host_data_write
+将 opaque 转为 PCIHostState ，从中取出 PCIBus (s->bus), 同时将地址转换为 s->config_reg | (addr & 3)
+addr 为 0 ，因此传下去的参数 addr 就是 s->config_reg
+
+
+##### pci_data_write
+根据 addr 计算出 devfn 。然后从该 PCIBus (pcie.0) 的设备数组 devices 中找到对应的 PCIDevice 然后调用其 config_read / config_write 函数对地址位置进行操作
+
+##### 小结
+
+在设置值阶段，目标port为3324，于是找到 pci-conf-data 这个 MemoryRegion，然后读设置目标阶段存在 config_reg 的设备地址，根据地址找到设备的配置空间，然后写入值。
 
 
 #### pci_default_write_config
@@ -538,7 +626,3 @@ void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int 
 ### 小结
 
 BIOS/OS通过write and read的手段发现BAR的长度，然后为其分配base address。而QEMU是通过mask的机制实现了对BAR最大值的限制，模拟了硬件上的实现。
-
-
-
-
