@@ -40,11 +40,11 @@ guest OS的页表被设置为read-only，当guest OS进行修改时会触发page
 
 
 ### EPT / NPT
-Intel EPT(Extended Page Table)引入了EPT页表和EPTP(EPT base pointer)，EPT中维护着GPA到HVA的映射，而EPT base pointer负责指向EPT。在guest OS运行时，该VM对应的EPT地址被加载到EPTP，而guest OS当前运行的进程页表基址被加载到CR3，于是在进行地址转换时，通过CR3指向的页表从GVA到GPA，再通过EPTP指向的EPT从GPA到HVA。
+Intel EPT(Extended Page Table)引入了EPT页表和EPTP(EPT base pointer)，EPT中维护着GPA到HVA的映射，而EPT base pointer负责指向EPT。在guest OS运行时，该VM对应的EPT地址被加载到EPTP，而guest OS当前运行的进程页表基址被加载到CR3，于是在进行地址转换时，通过CR3指向的页表从GVA到GPA，再通过EPTP指向的EPT从GPA到HPA。
 
 在page fault时，更新 EPT。
 
-AMD NPT(Nested Page Table)原理类似，但实现上略有不同。Guest OS和Host都有自己的CR3。当进行地址转换时，根据gCR3指向的页表从GVA到GPA，然后根据nCR3指向的页表从GPA到HVA。
+AMD NPT(Nested Page Table)原理类似，但实现上略有不同。Guest OS和Host都有自己的CR3。当进行地址转换时，根据gCR3指向的页表从GVA到GPA，然后根据nCR3指向的页表从GPA到HPA。
 
 优点：guest的缺页在guest内处理，不会vm exit。地址转换基本由硬件(MMU)查页表完成。
 缺点：两级页表查询，只能寄望于TLB命中。
@@ -235,14 +235,19 @@ pc_init1 / pc_q35_init => pc_memory_init => memory_region_allocate_system_memory
 ##### memory_region_allocate_system_memory
 
 对于非NUMA，直接分配内存
+
+```
 => allocate_system_memory_nonnuma => memory_region_init_ram_from_file / memory_region_init_ram          分配 MemoryRegion 对应 Ramblock 的内存
 => vmstate_register_ram                                                                                 根据region的名称name设置RAMBlock的idstr
+```
 
 对于NUMA，分配后需要设置HostMemoryBackend
+
+```
 => memory_region_init
 => memory_region_add_subregion      遍历所有NUMA节点的内存 HostMemoryBackend ，依次把那些mr成员不为空的作为当前 MemoryRegion 的 subregion，偏移量从0开始递增
 => vmstate_register_ram_global => vmstate_register_ram          根据region的名称name设置RAMBlock的idstr
-
+```
 
 
 
@@ -348,27 +353,33 @@ address_space_io 上有 kvm_io_listener 和 dispatch_listener
 
 ##### memory_region_transaction_commit
 
+```
 => --memory_region_transaction_depth
 => 如果 memory_region_transaction_depth 为0 且 memory_region_update_pending 大于0
     => MEMORY_LISTENER_CALL_GLOBAL(begin, Forward)        从前向后调用全局列表 memory_listeners 中所有listener的 begin 函数
     => 对 address_spaces 中的所有address space，调用 address_space_update_topology ，更新QEMU和KVM中维护的slot信息。
     => MEMORY_LISTENER_CALL_GLOBAL(commit, Forward)       从后向前调用全局列表 memory_listeners 中所有listener的 commit 函数
-
+```
 
 
 
 ##### address_space_update_topology
 
+```
 => address_space_get_flatview                                                           获取原来FlatView(AddressSpace.current_map)
 => generate_memory_topology                                                             生成新的FlatView
 => address_space_update_topology_pass                                                   比较新老FlatView，对其中不一致的FlatRange，执行相应的操作。
+```
 
 由于 AddressSpace 是树状结构，调用 address_space_update_topology ，使用FlatView模型将树状结构映射(压平)到线性地址空间。比较新老FlatView，对其中不一致的FlatRange，执行相应的操作，最终操作的KVM。
 
 ##### generate_memory_topology
+
+```
 => addrrange_make                   创建起始地址为0，结束地址为2^64的地址空间，作为guest的线性地址空间
 => render_memory_region             从根级region开始，递归将region映射到线性地址空间中，产生一个个FlatRange，构成FlatView
 => flatview_simplify                将FlatView中连续的FlatRange进行合并为一个
+```
 
 AddressSpace的root成员是该地址空间的根级 MemoryRegion ，generate_memory_topology 负责将它的树状结构进行压平，从而能够映射到一个线性地址空间，得到 FlatView 。
 
@@ -378,8 +389,10 @@ AddressSpace的root成员是该地址空间的根级 MemoryRegion ，generate_me
 
 比较该 AddressSpace 的新老FlatRange是否有变化，如果有，从前到后或从后到前遍历AddressSpace的listeners，调用对应callback函数。
 
+```
 => MEMORY_LISTENER_UPDATE_REGION => section_from_flat_range      根据 FlatRange 的范围构造 MemoryRegionSection
                                  => MEMORY_LISTENER_CALL
+```
 
 例如，前面提到过，在初始化流程中，注册了 kvm_state.memory_listener 作为 address_space_memory 的listener，它会被加入到AddressSpace的listeners中。于是如果address_space_memory发生了变化，则调用会调用memory_listener中相应的函数。
 
@@ -388,10 +401,12 @@ AddressSpace的root成员是该地址空间的根级 MemoryRegion ，generate_me
 
 
 ##### kvm_region_add
+
+```
 => kvm_set_phys_mem => kvm_lookup_overlapping_slot
                     => 计算起始 HVA
                     => kvm_set_user_memory_region => kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem)
-
+```
 
 kvm_lookup_overlapping_slot 用于判断新的region section的地址范围(GPA)是否与已有KVMSlot(kml->slots)有重叠，如果重叠了，需要进行处理：
 
@@ -666,8 +681,6 @@ slot保存在 kvm->memslots[as_id]->memslots[id] 中，其中as_id为AddressSpac
 
 
 
-
-
 ### 内存管理单元(MMU)
 
 #### 初始化
@@ -766,6 +779,7 @@ kvm_mmu_page_header    576    576    168   48    2 : tunables    0    0    0 : s
 
 
 
+
 #### 加载页表
 
 在 kvm_vm_ioctl_create_vcpu 中仅仅是对mmu进行初始化，比如将 vcpu->arch.mmu.root_hpa 设置为 INVALID_PAGE ，直到要进入VM(VMLAUNCH/VMRESUME)前才真正设置该值。
@@ -849,7 +863,6 @@ union kvm_mmu_page_role {
 ```
 
 
-
 #### EPT Violation
 
 当guest第一次访问某个页面时，由于没有gva到gpa的映射，会触发guest os的page fault。于是guest os会建立对应的pte并修复好各级页表，最后访问对应的GPA。由于没有建立gpa到hva的映射，于是触发EPT Violation，VMEXIT会到KVM，在 vmx_handle_exit 中执行kvm_vmx_exit_handlers[exit_reason]，由于exit_reason是 EXIT_REASON_EPT_VIOLATION ，因此调用 handle_ept_violation 。
@@ -879,7 +892,7 @@ union kvm_mmu_page_role {
         => mmu_set_spte                                                 对于level1的页表，其页表项肯定是缺的，所以不用判断直接填上pfn的起始hpa
         => is_shadow_present_pte                                        如果下一级页表页不存在，即当前页表项没值(*sptep = 0)
             => kvm_mmu_get_page                                         分配一个页表页
-            => link_shadow_page                                         将新页表页的HPA填入到到当前页表项(sptep)中
+            => link_shadow_page                                         将新页表页的HPA填入到当前页表项(sptep)中
 ```
 
 可以发现主要有两步，一步获取GPA所对应的物理页，如果没有会进行分配。另一步是更新EPT。
@@ -966,3 +979,29 @@ kvm_mmu_alloc_page 会通过 mmu_memory_cache_alloc 从 vcpu->arch.mmu_page_head
 
 
 利用两套反向映射，在利用GPA可以算出gfn后，可以通过rmap得到在1级中的页表项，通过parent_ptes又可以得到在2-4级中的页表项。当host需要将guest的某个GPA的page换出时，直接通过反向索引操作该gfn相关的页表项，而无需再次走EPT查询。
+
+
+
+
+
+
+## 总结
+
+### QEMU
+创建一系列 MemoryRegion ，分别表示guest中的rom、ram等区域。 MemoryRegion 之间可通过alias或subregion的方式定义相互之间的关系，从而进一步细化区域的定义。
+
+对于一个实体MemoryRegion(非alias)，在初始化内存的过程中会创建它所对应的RAMBlock。RAMBlock通过mmap的方式从QEMU的进程空间中分配内存，并负责维护该MemoryRegion管理内存的起始HVA/GPA/size等信息。
+
+所有的MemoryRegion构成一个 AddressSpace ，表示VM的物理地址空间。如果AddressSpace中的MemoryRegion发生变化，则listener被触发，将 AddressSpace 下的 MemoryRegion 树展平，形成一维的FlatView，比较FlatRange是否发生了变化。如果是调用相应方法如 region_add 对变化的section region进行检查，更新QEMU内的KVMSlot，同时填充 kvm_userspace_memory_region 结构，作为ioctl的参数更新KVM中的 kvm_memory_slot 。
+
+
+### KVM
+
+当 QEMU 通过 ioctl 创建vcpu时，调用 kvm_mmu_create 初始化mmu相关信息，为页表项结构分配slab cache。
+
+当 KVM 要进入 guest 前， vcpu_enter_guest => kvm_mmu_reload 会将根级页表地址加载到VMCS，使guest使用该页表。
+
+当发生 EPT Violation 时， VMEXIT 到 KVM 中。如果是缺页，则拿到对应的GPA，根据GPA算出gfn，根据gfn找到对应的memory slot并根据其信息找到对应的hva，再根据hva找到对应的pfn，确保该page位于内存。在把缺的页填上后，需要更新EPT，完善其中缺少的页表项。于是从level4开始，逐层补全页表，对于在某层上缺少的页表页，会从slab中分配后将新页表页的HPA填入到上一级页表中。
+
+除了建立上级页表到下级页表的关联外，还会建立反向映射，可以直接根据GPA找到gfn相关的页表项，而无需再次走EPT查询。
+
