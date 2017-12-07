@@ -6,11 +6,12 @@
 ## PCI设备的创建与初始化
 
 ```
-pci_create_simple_multifunction => pci_create_multifunction => qdev_create(&bus->qbus, name) => object_class_by_name
-                                                            => qdev_prop_set_int32(dev, "addr", devfn)
-                                => qdev_init_nofail => dc->realize (pci_qdev_realize) => do_pci_register_device
-                                                                                      => pc->realize (ich9_lpc_realize)
-                                                                                      => pci_add_option_rom              添加rom
+pci_create_simple_multifunction => pci_create_multifunction
+    => qdev_create(&bus->qbus, name) => object_class_by_name
+    => qdev_prop_set_int32(dev, "addr", devfn)
+    => qdev_init_nofail => dc->realize (pci_qdev_realize)
+    => do_pci_register_device => pc->realize (ich9_lpc_realize)
+    => pci_add_option_rom   // 添加rom
 ```
 
 创建了PCI设备对象，并设置realized为true，于是调用realize函数进行初始化。
