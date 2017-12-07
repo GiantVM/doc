@@ -289,7 +289,7 @@ void shoot4u_flush_tlb_others(const struct cpumask *cpumask,
                 struct mm_struct *mm, unsigned long start,
                 unsigned long end)
 {
-    // shoot4u currently uses a 8 bytes bitmap to pass target cores
+    // shoot4u currently uses an 8 bytes bitmap to pass target cores
     // thus it supports up to 64 physical cores
     u64 cpu_bitmap = 0;
     int cpu;
