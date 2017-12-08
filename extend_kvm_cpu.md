@@ -102,20 +102,27 @@ Number of SMP cpus requested (500) exceeds the maximum cpus supported by KVM (28
 
 5. qemu-system-x86_64: -device intel-iommu,intremap=on,eim=on: Intel Interrupt Remapping cannot work with kernel-irqchip=on, please use 'split|off'.
 
-    sudo /home/binss/Desktop/qemu/bin/debug/native/x86_64-softmmu/qemu-system-x86_64 -m 512 -hda myvm.img -boot c -vnc :1 -enable-kvm -smp 500 -machine q35,kernel-irqchip=split -device intel-iommu,intremap=on,eim=on
-
-    可参考：https://lists.gnu.org/archive/html/qemu-devel/2016-07/msg02930.html
+    ```bash
+    $ sudo $QEMU_SYSTEM_64 -m 512 -hda $DISK -boot c -vnc :1 -enable-kvm -smp 500 -machine q35,kernel-irqchip=split -device intel-iommu,intremap=on,eim=on
+    ```
+    + 将`$QEMU_SYSTEM_64`替换成重新编译过后qemu-system-x86_64的路径, 例如 `/home/binss/Desktop/qemu/bin/debug/native/x86_64-softmmu/qemu-system-x86_64`
+    + 将`$DISK`替换成目标img文件
+    + 可参考：<https://lists.gnu.org/archive/html/qemu-devel/2016-07/msg02930.html>
 
 
 6. 突破guest OS的CPU限制
 
     修改nr_cpu，当前为
 
-    ```
-    grep NR_CPUS /boot/config-`uname -r`
-    256
+    ```bash
+    $ grep NR_CPUS /boot/config-`uname -r`
+    $ CONFIG_NR_CPUS=256
     ```
 
-    这里可以手动修改config然后重新编译kernel，或者换用更新的kernel，比如4.4.0-62。
+    这里可以手动修改config然后重新编译kernel, 详见:
+    - [KernelBuild](https://kernelnewbies.org/KernelBuild)
+    - [Kernels/Traditional compilation](https://wiki.archlinux.org/index.php/Kernels/Traditional_compilation)
+
+    或者换用更新的kernel，比如4.4.0-62。
 
 
