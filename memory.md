@@ -106,11 +106,13 @@ struct HostMemoryBackend {
 ```
 main => configure_accelerator => kvm_init => kvm_memory_listener_register(s, &s->memory_listener, &address_space_memory, 0) 初始化
 kvm_state.memory_listener
-                                              => kml->listener.region_add = kvm_region_add                  为listener设置操作
-                                              => memory_listener_register                                   初始化listener并绑定到 address_space_memory
-                                          => memory_listener_register(&kvm_io_listener, &address_space_io)  初始化 kvm_io_listener 并绑定到 address_space_io
-     => cpu_exec_init_all => memory_map_init                                        创建 system_memory("system") 和 system_io("io") 两个全局 MemoryRegion
-                                 => address_space_init                              初始化 address_space_memory("memory") 和 address_space_io("I/O") AddressSpace，并设置 system_memory 和 system_io 作为 root
+     => kml->listener.region_add = kvm_region_add                  为listener设置操作
+     => memory_listener_register                                   初始化listener并绑定到 address_space_memory
+     => memory_listener_register(&kvm_io_listener, &address_space_io)  初始化 kvm_io_listener 并绑定到 address_space_io
+     => cpu_exec_init_all => memory_map_init                       创建 system_memory("system") 和 system_io("io") 两个全局                                                                        MemoryRegion
+     => address_space_init                                         初始化 address_space_memory("memory") 和 
+                                                                   address_space_io("I/O")  AddressSpace，并设置 system_memory 
+                                                                   和 system_io 作为 root
 ```
 
 在初始化流程中，注册了 memory_listener 和 kvm_io_listener ，在AddressSpace address_space_memory 和 address_space_io 发生变化时会调用相应的回调函数。
@@ -229,9 +231,9 @@ system_io(io)
 在初始化VM的过程中，建立了相应的 MemoryRegion ：
 
 pc_init1 / pc_q35_init => pc_memory_init => memory_region_allocate_system_memory
-                                         => memory_region_init_alias => memory_region_init              初始化alias的 MemoryRegion
-                                         => memory_region_init                                          初始化 MemoryRegion
-                                         => memory_region_init_ram                                      分配 MemoryRegion 对应 Ramblock 的内存
+                                         => memory_region_init_alias => memory_region_init        初始化alias的 MemoryRegion
+                                         => memory_region_init                                    初始化 MemoryRegion
+                                         => memory_region_init_ram                      分配 MemoryRegion 对应 Ramblock 的内存
 
 
 ##### memory_region_allocate_system_memory
@@ -239,15 +241,19 @@ pc_init1 / pc_q35_init => pc_memory_init => memory_region_allocate_system_memory
 对于非NUMA，直接分配内存
 
 ```
-=> allocate_system_memory_nonnuma => memory_region_init_ram_from_file / memory_region_init_ram          分配 MemoryRegion 对应 Ramblock 的内存
-=> vmstate_register_ram                                                                                 根据region的名称name设置RAMBlock的idstr
+=> allocate_system_memory_nonnuma => memory_region_init_ram_from_file / memory_region_init_ram          分配 MemoryRegion 对应 
+                                                                                                        Ramblock 的内存
+=> vmstate_register_ram                                                                                 根据region的名称name设
+                                                                                                        置RAMBlock的idstr
 ```
 
 对于NUMA，分配后需要设置HostMemoryBackend
 
 ```
 => memory_region_init
-=> memory_region_add_subregion      遍历所有NUMA节点的内存 HostMemoryBackend ，依次把那些mr成员不为空的作为当前 MemoryRegion 的 subregion，偏移量从0开始递增
+=> memory_region_add_subregion                                  遍历所有NUMA节点的内存 HostMemoryBackend ，依次把那些mr成员不为空的
+                                                                作为当前 MemoryRegion 的 subregion，偏移量从0开始递增
+
 => vmstate_register_ram_global => vmstate_register_ram          根据region的名称name设置RAMBlock的idstr
 ```
 
@@ -689,14 +695,18 @@ slot保存在 kvm->memslots[as_id]->memslots[id] 中，其中as_id为AddressSpac
 
 ```
 kvm_init => kvm_arch_init => kvm_mmu_module_init => 建立 mmu_page_header_cache 作为cache
-                                                 => register_shrinker(&mmu_shrinker)                注册回收函数
+                                                 => register_shrinker(&mmu_shrinker)              注册回收函数
 
 
 kvm_vm_ioctl_create_vcpu =>
-kvm_arch_vcpu_create => kvm_x86_ops->vcpu_create (vmx_create_vcpu) => init_rmode_identity_map       为实模式建立1024个页的等值映射
+kvm_arch_vcpu_create => kvm_x86_ops->vcpu_create (vmx_create_vcpu) => init_rmode_identity_map     为实模式建立1024个页的等值映射
                                                                    => kvm_vcpu_init => kvm_arch_vcpu_init => kvm_mmu_create
-kvm_arch_vcpu_setup => kvm_mmu_setup => init_kvm_mmu => init_kvm_tdp_mmu                            如果支持two dimentional paging(EPT)，初始化之，设置 vcpu->arch.mmu 中的属性和函数
-                                                     => init_kvm_softmmu => kvm_init_shadow_mmu     否则初始化SPT
+
+kvm_arch_vcpu_setup => kvm_mmu_setup => init_kvm_mmu => init_kvm_tdp_mmu                如果支持two dimentional   
+                                                                                        paging(EPT)，初始化之，设置 
+                                                                                        vcpu->arch.mmu 中的属性和函数
+                                                     
+                                                     => init_kvm_softmmu => kvm_init_shadow_mmu   否则初始化SPT
 ```
 
 
@@ -788,9 +798,14 @@ kvm_mmu_page_header    576    576    168   48    2 : tunables    0    0    0 : s
 
 ```
 vcpu_enter_guest => kvm_mmu_reload => kvm_mmu_load => mmu_topup_memory_caches                       保证各cache充足
-                                                   => mmu_alloc_roots => mmu_alloc_direct_roots     如果根页表不存在，则分配一个kvm_mmu_page
-                                                   => vcpu->arch.mmu.set_cr3 (vmx_set_cr3)          对于EPT，将该页的spt(strcut page)的HPA加载到VMCS
-                                                                                                    对于SPT，将该页的spt(strcut page)的HPA加载到cr3
+                                                   => mmu_alloc_roots => mmu_alloc_direct_roots     如果根页表不存在，则分配一个
+                                                                                                    kvm_mmu_page
+                                                   
+                                                   => vcpu->arch.mmu.set_cr3 (vmx_set_cr3)          对于EPT，将该页的spt(strcut 
+                                                                                                    page)的HPA加载到VMCS
+                                                                                                    
+                                                                                                    对于SPT，将该页的spt(strcut 
+                                                                                                    page)的HPA加载到cr3
                  => kvm_x86_ops->run (vmx_vcpu_run)
                  => kvm_x86_ops->handle_exit (vmx_handle_exit)
 ```
@@ -949,9 +964,11 @@ struct kvm_shadow_walk_iterator {
 => rmap_add => page_header(__pa(spte))                                                      获取spetp所在的页表页
             => kvm_mmu_page_set_gfn                                                         将gfn设置到该页表页的gfns中
             => gfn_to_rmap => __gfn_to_memslot                                              获取gfn对应的slot
-                           => __gfn_to_rmap => gfn_to_index                                 通过gfn和slot->base_gfn，算出该页在slot中的index
+                           => __gfn_to_rmap => gfn_to_index                                 通过gfn和slot->base_gfn，算出该页在
+                                                                                            slot中的index
                                     => slot->arch.rmap[level - PT_PAGE_TABLE_LEVEL][idx]    从该slot中取出对应的rmap
-            => pte_list_add                                                                 将当前项(spetp)的地址加入到rmap中，做反向映射
+            => pte_list_add                                                                 将当前项(spetp)的地址加入到rmap中，做
+                                                                                            反向映射
 ```
 
 
