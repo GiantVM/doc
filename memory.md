@@ -10,7 +10,7 @@ PGD PUD PMD PTE Offset
 
 在x86_64下，一个普通page的大小为4KB，由于地址为64bit，因此一个页表项占8 Byte，于是一张页表中只能存放512个表项。因此每级页表索引使用9个bit，加上页内索引(offset)使用12个bit，因此一个64bit地址中只有0-47bit被用到。
 
-在64位下，EPT采用了和传统页表相同的结构，于是如果不考虑TLB，进行一次GVA到HVA需要经过 ??? 4*4次页表查询。
+在64位下，EPT采用了和传统页表相同的结构，于是如果不考虑TLB，进行一次GVA到HVA需要经过4*4次页表查询。
 
 有多少次查询就要访问多少次内存，在walk过程中不断对内存进行访问无疑会对性能造成影响。为此引入TLB(Translation Lookaside Buffer)，用来缓存常用的PTE。这样在TLB命中的情况下就无需到内存去进行查找了。利用程序使用内存的局部化特征，TLB的命中率往往很高，改善了在多级页表下的的访问速度。
 
@@ -32,9 +32,9 @@ KVM通过维护 GVA 到 HPA 的页表SPT，实现了直接映射。于是可以�
 
 guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断:
     1.如果是由guest OS引起的，则将该异常注入回去。客户机调用客户机自己的page_fault处理函数，申请一个page，将page的GPA填充到客户机页表项中。
-    2.如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，???然后在SPT中增加/更新 GVA - HVA 的表项。
+    2.如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，然后在SPT中增加/更新 GVA - HPA 的表项。
 
-??? 当guest OS切换进程时，会把待切换进程的页表基址载入CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到guest的CR3。
+当guest OS切换进程时，会把待切换进程的页表基址载入guest的CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到host的CR3。
 
 缺点：每个进程都有一张SPT，带来额外的内存开销。需要维护guest OS页表和SPT的同步。每当guest发送page fault都会VM exit(即使是guest自身缺页导致的)，开销大。
 
