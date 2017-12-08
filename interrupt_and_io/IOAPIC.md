@@ -44,11 +44,17 @@ Physical Mode表示Destination的取值为目的LAPIC的APIC ID。Logical Mode�
 
 ### Pin
 Pin #1通常连接到键盘中断（IRQ1）
+
 Pin #2通常连接到IRQ0
+
 Pin #3-#11,#14,#15，通常分别连接到ISA IRQ[3:7,8#,9:11,14:15]
+
 Pin #12通常连接到鼠标中断（IRQ12/M）
+
 Pin #16-#19代表PCI IRQ[0:3]
+
 Pin #20-#21代表Motherboard IRQ[0:1]
+
 Pin #23代表SMI中断，若Mask掉，则SMI中断会从IOAPIC的#SMIOUT引脚引出，否则会由IOAPIC根据RTE #23转发
 
 **注意：** 这里所说的IRQ（如IRQ0、IRQ1），都是从某个设备（如键盘、PIT）发出，并同时连接到PIC和IOAPIC的中断信号线。例如IRQ1既是指PIC的1号输入引脚，也是指连到IOAPIC的同一个中断。因此，若PIC和IOAPIC同时启用，可能会造成设备产生一个中断，CPU收到**两次**中断，故必须屏蔽其中一个而只用另一个，通常我们会屏蔽PIC（这可以通过设置IMCR寄存器完成，该寄存器通过Port IO端口22、23访问，详见MP Spec）。
