@@ -24,12 +24,12 @@ PIC也就是8259A中断控制器，可以配合MCS-80/85（即8080/8085）或808
 需要注意的是，级联模式下，CPU执行完中断处理例程后，需要进行两次EOI，分别对Master和Slave各进行一次。
 
 ## 编程接口
-PIC通过Port IO操纵，Master占据0x20和0x21两个端口，Slave占据0xA0和0xA1两个端口。前一个端口表示Command，后一个端口表示Data。[手册](http://heim.ifi.uio.no/~inf3151/doc/8259A.pdf)中的$A_0$位表示的就是Port号的最后一位，取0即Command，取1即Data。
+PIC通过Port IO操纵，Master占据0x20和0x21两个端口，Slave占据0xA0和0xA1两个端口。下面我们将前一个端口称为Command端口，后一个端口称为Data端口（这是OSDev上的叫法）。[手册](http://heim.ifi.uio.no/~inf3151/doc/8259A.pdf)中的A_0位表示的就是Port号的最后一位，取0即Command，取1即Data。
 
 ### Initialization
 在初始化时有四个Word（8位）可以使用，分别为ICW1-ICW4（Initialization Command Word）。写入ICW1就会启动初始化过程，重新初始化PIC。
 
-当$A_0$位为0（即写入Command端口）且输入值的第四位取1时，就认为是ICW1，由此会开启初始化过程。随后需要输入ICW2-ICW4，它们都要求$A_0$位1，即从Data端口输入。
+当A_0位为0（即写入Command端口）且输入值的第四位取1时，就认为是ICW1，由此会开启初始化过程。随后需要输入ICW2-ICW4，它们都要求A_0位1，即从Data端口输入。
 
 ICW1的内容如下：
 - 第0位为IC4，表示是否需要ICW4，取1表示需要
@@ -65,9 +65,9 @@ ICW1之后必须紧跟ICW2，内容如下：
 ### Operation
 初始化完成后，还能通过三个8位的OCW（Operation Command Word）进行运行时的调整。
 
-当$A_0$位为1时（即Data端口），输入值即为OCW1，代表了Interrupt Mask，其每一位对应于一个IRQ，取1即屏蔽该IRQ。同时，读取该端口即可读到IMR（Interrupt Mask Register）的值。
+当A_0位为1时（即Data端口），输入值即为OCW1，代表了Interrupt Mask，其每一位对应于一个IRQ，取1即屏蔽该IRQ。同时，读取该端口即可读到IMR（Interrupt Mask Register）的值。
 
-当$A_0$位为0时（即Command端口），根据输入值的第3、第4位决定其含义。若第4位为1，则表示ICW1，若第4位为0，则第3位取0代表OCW2，第3位取1代表OCW3。
+当A_0位为0时（即Command端口），根据输入值的第3、第4位决定其含义。若第4位为1，则表示ICW1，若第4位为0，则第3位取0代表OCW2，第3位取1代表OCW3。
 
 #### OCW2
 在介绍OCW2前，先介绍以下概念：
@@ -110,9 +110,9 @@ OCW3的内容如下：
 - 第6位为ESMM，Enable Special Mask Mode，取1时启用SMM位，取0时SMM位会被忽略
 - 第7位保留，应为0
 
-实际上OCW3共集成了三个功能（可以同时使用），第一个功能是从Command端口（$A_0$位为0）可以读出IRR或ISR的值，通过RR和RIS位可以选择读取哪个，PIC初始化后默认是读出IRR的值。
+实际上OCW3共集成了三个功能（可以同时使用），第一个功能是从Command端口（A_0位为0）可以读出IRR或ISR的值，通过RR和RIS位可以选择读取哪个，PIC初始化后默认是读出IRR的值。
 
-第二个功能是Poll模式，在通过OCW3发出一个Poll Command后，下一次读取Command端口（$A_0$位为0）时，就相当于一次中断Accept。若此时恰有中断Pending，则ISR中的Bit会被设置，读到的值最高位为1，最低3位为IRQ号。否则，则读到的值最高位为0，表示没有中断发生。
+第二个功能是Poll模式，在通过OCW3发出一个Poll Command后，下一次读取Command端口（A_0位为0）时，就相当于一次中断Accept。若此时恰有中断Pending，则ISR中的Bit会被设置，读到的值最高位为1，最低3位为IRQ号。否则，则读到的值最高位为0，表示没有中断发生。
 
 第三个功能是Special Mask模式，在此模式下若某个位被IMR屏蔽，则有以下效果：
 - 即使该位是ISR中有最高优先级，也不会被Non-Specific EOI清空
