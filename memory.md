@@ -3,14 +3,14 @@
 ### 页表
 将VA转换为PA。VA的地址由页号和页内偏移量组成，转换时，先从页表的基地址寄存器(CR3)中读取页表的起始地址，将起始地址加上页号得到页查询，查询得到物理页地址。物理地址再加上偏移量得到PA。
 
-随着寻址范围的扩大(64位CPU支持48位的寻址空间)，页表需要大量且连续的内存空间，同时每个进程都有自己的页表，系统光是维护页表就需要耗费大量内存。为此，利用程序使用内存的局部化特征，引进多级页表。Linux使用了四级页表：
+随着寻址范围的扩大(64位CPU支持48位的虚拟地址寻址空间，和52位的物理地址寻址空间)，页表需要大量且连续的内存空间，同时每个进程都有自己的页表，系统光是维护页表就需要耗费大量内存。为此，利用程序使用内存的局部化特征，引进多级页表。Linux使用了四级页表：
 
 Page Map Level 4(PML4) => Page Directory Pointer Table(PDPT) => Page Directory(PD) => Page Table(PT)
 PGD PUD PMD PTE Offset
 
-在x86_64下，一个普通page的大小为4KB，由于地址为64bit，因此一个页表项占8B，于是一张页表中只能存放512个表项。因此每级页表索引使用9个bit，加上页内索引(offset)使用12个bit，因此一个64bit地址中只有0-47bit被用到。
+在x86_64下，一个普通page的大小为4KB，由于地址为64bit，因此一个页表项占8 Byte，于是一张页表中只能存放512个表项。因此每级页表索引使用9个bit，加上页内索引(offset)使用12个bit，因此一个64bit地址中只有0-47bit被用到。
 
-在64位下，EPT采用了和传统页表相同的结构，于是如果不考虑TLB，进行一次GVA到HVA需要经过4*4次页表查询。
+在64位下，EPT采用了和传统页表相同的结构，于是如果不考虑TLB，进行一次GVA到HVA需要经过 ??? 4*4次页表查询。
 
 有多少次查询就要访问多少次内存，在walk过程中不断对内存进行访问无疑会对性能造成影响。为此引入TLB(Translation Lookaside Buffer)，用来缓存常用的PTE。这样在TLB命中的情况下就无需到内存去进行查找了。利用程序使用内存的局部化特征，TLB的命中率往往很高，改善了在多级页表下的的访问速度。
 
@@ -28,11 +28,11 @@ GVA - GPA 的映射由guest OS负责维护，而 HVA - HPA 由host OS负责维�
 
 
 ### 影子页表
-KVM通过维护 GVA 到 HVA 的页表SPT，实现了直接映射。于是可以被物理MMU寻址使用。
+KVM通过维护 GVA 到 HPA 的页表SPT，实现了直接映射。于是可以被物理MMU寻址使用。
 
-guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断，如果是由guest OS引起的，则将该异常注入回去。如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，然后在SPT中增加/更新 GVA - HVA 的表项。
+guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断:如果是由guest OS引起的，则将该异常注入回去。客户机调用客户机自己的page_fault处理函数，申请一个page，将page的GPA填充到客户机页表项中。如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，???然后在SPT中增加/更新 GVA - HVA 的表项。
 
-当guest OS切换进程时，会把待切换进程的页表基址载入CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到guest的CR3。
+??? 当guest OS切换进程时，会把待切换进程的页表基址载入CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到guest的CR3。
 
 缺点：每个进程都有一张SPT，带来额外的内存开销。需要维护guest OS页表和SPT的同步。每当guest发送page fault都会VM exit(即使是guest自身缺页导致的)，开销大。
 
@@ -40,7 +40,7 @@ guest OS的页表被设置为read-only，当guest OS进行修改时会触发page
 
 
 ### EPT / NPT
-Intel EPT(Extended Page Table)引入了EPT页表和EPTP(EPT base pointer)，EPT中维护着GPA到HVA的映射，而EPT base pointer负责指向EPT。在guest OS运行时，该VM对应的EPT地址被加载到EPTP，而guest OS当前运行的进程页表基址被加载到CR3，于是在进行地址转换时，通过CR3指向的页表从GVA到GPA，再通过EPTP指向的EPT从GPA到HPA。
+Intel EPT(Extended Page Table)引入了EPT页表和EPTP(EPT base pointer)，EPT中维护着GPA到HPA的映射，而EPT base pointer负责指向EPT。在guest OS运行时，该VM对应的EPT地址被加载到EPTP，而guest OS当前运行的进程页表基址被加载到CR3，于是在进行地址转换时，通过CR3指向的页表从GVA到GPA，再通过EPTP指向的EPT从GPA到HPA。
 
 在page fault时，更新 EPT。
 
@@ -104,11 +104,13 @@ struct HostMemoryBackend {
 ```
 main => configure_accelerator => kvm_init => kvm_memory_listener_register(s, &s->memory_listener, &address_space_memory, 0) 初始化
 kvm_state.memory_listener
-                                              => kml->listener.region_add = kvm_region_add                  为listener设置操作
-                                              => memory_listener_register                                   初始化listener并绑定到 address_space_memory
-                                          => memory_listener_register(&kvm_io_listener, &address_space_io)  初始化 kvm_io_listener 并绑定到 address_space_io
-     => cpu_exec_init_all => memory_map_init                                        创建 system_memory("system") 和 system_io("io") 两个全局 MemoryRegion
-                                 => address_space_init                              初始化 address_space_memory("memory") 和 address_space_io("I/O") AddressSpace，并设置 system_memory 和 system_io 作为 root
+     => kml->listener.region_add = kvm_region_add                  为listener设置操作
+     => memory_listener_register                                   初始化listener并绑定到 address_space_memory
+     => memory_listener_register(&kvm_io_listener, &address_space_io)  初始化 kvm_io_listener 并绑定到 address_space_io
+     => cpu_exec_init_all => memory_map_init                       创建 system_memory("system") 和 system_io("io") 两个全局                                                                        MemoryRegion
+     => address_space_init                                         初始化 address_space_memory("memory") 和 
+                                                                   address_space_io("I/O")  AddressSpace，并设置 system_memory 
+                                                                   和 system_io 作为 root
 ```
 
 在初始化流程中，注册了 memory_listener 和 kvm_io_listener ，在AddressSpace address_space_memory 和 address_space_io 发生变化时会调用相应的回调函数。
@@ -227,9 +229,9 @@ system_io(io)
 在初始化VM的过程中，建立了相应的 MemoryRegion ：
 
 pc_init1 / pc_q35_init => pc_memory_init => memory_region_allocate_system_memory
-                                         => memory_region_init_alias => memory_region_init              初始化alias的 MemoryRegion
-                                         => memory_region_init                                          初始化 MemoryRegion
-                                         => memory_region_init_ram                                      分配 MemoryRegion 对应 Ramblock 的内存
+                                         => memory_region_init_alias => memory_region_init        初始化alias的 MemoryRegion
+                                         => memory_region_init                                    初始化 MemoryRegion
+                                         => memory_region_init_ram                      分配 MemoryRegion 对应 Ramblock 的内存
 
 
 ##### memory_region_allocate_system_memory
@@ -237,15 +239,19 @@ pc_init1 / pc_q35_init => pc_memory_init => memory_region_allocate_system_memory
 对于非NUMA，直接分配内存
 
 ```
-=> allocate_system_memory_nonnuma => memory_region_init_ram_from_file / memory_region_init_ram          分配 MemoryRegion 对应 Ramblock 的内存
-=> vmstate_register_ram                                                                                 根据region的名称name设置RAMBlock的idstr
+=> allocate_system_memory_nonnuma => memory_region_init_ram_from_file / memory_region_init_ram          分配 MemoryRegion 对应 
+                                                                                                        Ramblock 的内存
+=> vmstate_register_ram                                                                                 根据region的名称name设
+                                                                                                        置RAMBlock的idstr
 ```
 
 对于NUMA，分配后需要设置HostMemoryBackend
 
 ```
 => memory_region_init
-=> memory_region_add_subregion      遍历所有NUMA节点的内存 HostMemoryBackend ，依次把那些mr成员不为空的作为当前 MemoryRegion 的 subregion，偏移量从0开始递增
+=> memory_region_add_subregion                                  遍历所有NUMA节点的内存 HostMemoryBackend ，依次把那些mr成员不为空的
+                                                                作为当前 MemoryRegion 的 subregion，偏移量从0开始递增
+
 => vmstate_register_ram_global => vmstate_register_ram          根据region的名称name设置RAMBlock的idstr
 ```
 
@@ -687,14 +693,18 @@ slot保存在 kvm->memslots[as_id]->memslots[id] 中，其中as_id为AddressSpac
 
 ```
 kvm_init => kvm_arch_init => kvm_mmu_module_init => 建立 mmu_page_header_cache 作为cache
-                                                 => register_shrinker(&mmu_shrinker)                注册回收函数
+                                                 => register_shrinker(&mmu_shrinker)              注册回收函数
 
 
 kvm_vm_ioctl_create_vcpu =>
-kvm_arch_vcpu_create => kvm_x86_ops->vcpu_create (vmx_create_vcpu) => init_rmode_identity_map       为实模式建立1024个页的等值映射
+kvm_arch_vcpu_create => kvm_x86_ops->vcpu_create (vmx_create_vcpu) => init_rmode_identity_map     为实模式建立1024个页的等值映射
                                                                    => kvm_vcpu_init => kvm_arch_vcpu_init => kvm_mmu_create
-kvm_arch_vcpu_setup => kvm_mmu_setup => init_kvm_mmu => init_kvm_tdp_mmu                            如果支持two dimentional paging(EPT)，初始化之，设置 vcpu->arch.mmu 中的属性和函数
-                                                     => init_kvm_softmmu => kvm_init_shadow_mmu     否则初始化SPT
+
+kvm_arch_vcpu_setup => kvm_mmu_setup => init_kvm_mmu => init_kvm_tdp_mmu                如果支持two dimentional   
+                                                                                        paging(EPT)，初始化之，设置 
+                                                                                        vcpu->arch.mmu 中的属性和函数
+                                                     
+                                                     => init_kvm_softmmu => kvm_init_shadow_mmu   否则初始化SPT
 ```
 
 
@@ -786,9 +796,14 @@ kvm_mmu_page_header    576    576    168   48    2 : tunables    0    0    0 : s
 
 ```
 vcpu_enter_guest => kvm_mmu_reload => kvm_mmu_load => mmu_topup_memory_caches                       保证各cache充足
-                                                   => mmu_alloc_roots => mmu_alloc_direct_roots     如果根页表不存在，则分配一个kvm_mmu_page
-                                                   => vcpu->arch.mmu.set_cr3 (vmx_set_cr3)          对于EPT，将该页的spt(strcut page)的HPA加载到VMCS
-                                                                                                    对于SPT，将该页的spt(strcut page)的HPA加载到cr3
+                                                   => mmu_alloc_roots => mmu_alloc_direct_roots     如果根页表不存在，则分配一个
+                                                                                                    kvm_mmu_page
+                                                   
+                                                   => vcpu->arch.mmu.set_cr3 (vmx_set_cr3)          对于EPT，将该页的spt(strcut 
+                                                                                                    page)的HPA加载到VMCS
+                                                                                                    
+                                                                                                    对于SPT，将该页的spt(strcut 
+                                                                                                    page)的HPA加载到cr3
                  => kvm_x86_ops->run (vmx_vcpu_run)
                  => kvm_x86_ops->handle_exit (vmx_handle_exit)
 ```
@@ -947,9 +962,11 @@ struct kvm_shadow_walk_iterator {
 => rmap_add => page_header(__pa(spte))                                                      获取spetp所在的页表页
             => kvm_mmu_page_set_gfn                                                         将gfn设置到该页表页的gfns中
             => gfn_to_rmap => __gfn_to_memslot                                              获取gfn对应的slot
-                           => __gfn_to_rmap => gfn_to_index                                 通过gfn和slot->base_gfn，算出该页在slot中的index
+                           => __gfn_to_rmap => gfn_to_index                                 通过gfn和slot->base_gfn，算出该页在
+                                                                                            slot中的index
                                     => slot->arch.rmap[level - PT_PAGE_TABLE_LEVEL][idx]    从该slot中取出对应的rmap
-            => pte_list_add                                                                 将当前项(spetp)的地址加入到rmap中，做反向映射
+            => pte_list_add                                                                 将当前项(spetp)的地址加入到rmap中，做
+                                                                                            反向映射
 ```
 
 
