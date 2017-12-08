@@ -104,5 +104,6 @@ ICH6首次支持PCIe，有如下改动：
 ### 配置
 
 ICH9中IRQ pin的配置如下：
+
 ![ich9_ioapic_1](/assets/ich9_ioapic_1.png)
 ![ich9_ioapic_2](/assets/ich9_ioapic_2.png)
