@@ -30,9 +30,7 @@ GVA - GPA 的映射由guest OS负责维护，而 HVA - HPA 由host OS负责维�
 ### 影子页表
 KVM通过维护 GVA 到 HPA 的页表SPT，实现了直接映射。于是可以被物理MMU寻址使用。
 
-guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断:
-    1.如果是由guest OS引起的，则将该异常注入回去。客户机调用客户机自己的page_fault处理函数，申请一个page，将page的GPA填充到客户机页表项中。
-    2.如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，???然后在SPT中增加/更新 GVA - HVA 的表项。
+guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断:如果是由guest OS引起的，则将该异常注入回去。客户机调用客户机自己的page_fault处理函数，申请一个page，将page的GPA填充到客户机页表项中。如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，???然后在SPT中增加/更新 GVA - HVA 的表项。
 
 ??? 当guest OS切换进程时，会把待切换进程的页表基址载入CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到guest的CR3。
 
