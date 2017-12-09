@@ -3,12 +3,12 @@
 ### 页表
 将VA转换为PA。VA的地址由页号和页内偏移量组成，转换时，先从页表的基地址寄存器(CR3)中读取页表的起始地址，将起始地址加上页号得到页查询，查询得到物理页地址。物理地址再加上偏移量得到PA。
 
-随着寻址范围的扩大(64位CPU支持48位的寻址空间)，页表需要大量且连续的内存空间，同时每个进程都有自己的页表，系统光是维护页表就需要耗费大量内存。为此，利用程序使用内存的局部化特征，引进多级页表。Linux使用了四级页表：
+随着寻址范围的扩大(64位CPU支持48位的虚拟地址寻址空间，和52位的物理地址寻址空间)，页表需要大量且连续的内存空间，同时每个进程都有自己的页表，系统光是维护页表就需要耗费大量内存。为此，利用程序使用内存的局部化特征，引进多级页表。Linux使用了四级页表：
 
 Page Map Level 4(PML4) => Page Directory Pointer Table(PDPT) => Page Directory(PD) => Page Table(PT)
 PGD PUD PMD PTE Offset
 
-在x86_64下，一个普通page的大小为4KB，由于地址为64bit，因此一个页表项占8B，于是一张页表中只能存放512个表项。因此每级页表索引使用9个bit，加上页内索引(offset)使用12个bit，因此一个64bit地址中只有0-47bit被用到。
+在x86_64下，一个普通page的大小为4KB，由于地址为64bit，因此一个页表项占8 Byte，于是一张页表中只能存放512个表项。因此每级页表索引使用9个bit，加上页内索引(offset)使用12个bit，因此一个64bit地址中只有0-47bit被用到。
 
 在64位下，EPT采用了和传统页表相同的结构，于是如果不考虑TLB，进行一次GVA到HVA需要经过4*4次页表查询。
 
@@ -28,11 +28,13 @@ GVA - GPA 的映射由guest OS负责维护，而 HVA - HPA 由host OS负责维�
 
 
 ### 影子页表
-KVM通过维护 GVA 到 HVA 的页表SPT，实现了直接映射。于是可以被物理MMU寻址使用。
+KVM通过维护 GVA 到 HPA 的页表SPT，实现了直接映射。于是可以被物理MMU寻址使用。
 
-guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断，如果是由guest OS引起的，则将该异常注入回去。如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，然后在SPT中增加/更新 GVA - HVA 的表项。
+guest OS的页表被设置为read-only，当guest OS进行修改时会触发page fault，VMEXIT到KVM。KVM会对GVA对应的页表项进行访问权限检查，结合错误码进行判断:
+    1.如果是由guest OS引起的，则将该异常注入回去。客户机调用客户机自己的page_fault处理函数，申请一个page，将page的GPA填充到客户机页表项中。
+    2.如果是guest OS的页表和SPT不一致引起的，则同步SPT，根据guest OS页表和mmap映射找到GVA到GPA再到HVA的映射关系，然后在SPT中增加/更新 GVA - HPA 的表项。
 
-当guest OS切换进程时，会把待切换进程的页表基址载入CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到guest的CR3。
+当guest OS切换进程时，会把待切换进程的页表基址载入guest的CR3，触发VM EXIT到KVM，通过哈希表找到对应的SPT，然后加载到host的CR3。
 
 缺点：每个进程都有一张SPT，带来额外的内存开销。需要维护guest OS页表和SPT的同步。每当guest发送page fault都会VM exit(即使是guest自身缺页导致的)，开销大。
 
@@ -40,7 +42,7 @@ guest OS的页表被设置为read-only，当guest OS进行修改时会触发page
 
 
 ### EPT / NPT
-Intel EPT(Extended Page Table)引入了EPT页表和EPTP(EPT base pointer)，EPT中维护着GPA到HVA的映射，而EPT base pointer负责指向EPT。在guest OS运行时，该VM对应的EPT地址被加载到EPTP，而guest OS当前运行的进程页表基址被加载到CR3，于是在进行地址转换时，通过CR3指向的页表从GVA到GPA，再通过EPTP指向的EPT从GPA到HPA。
+Intel EPT(Extended Page Table)引入了EPT页表和EPTP(EPT base pointer)，EPT中维护着GPA到HPA的映射，而EPT base pointer负责指向EPT。在guest OS运行时，该VM对应的EPT地址被加载到EPTP，而guest OS当前运行的进程页表基址被加载到CR3，于是在进行地址转换时，通过CR3指向的页表从GVA到GPA，再通过EPTP指向的EPT从GPA到HPA。
 
 在page fault时，更新 EPT。
 
