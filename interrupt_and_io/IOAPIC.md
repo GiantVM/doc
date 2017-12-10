@@ -43,21 +43,21 @@ Physical Mode表示Destination的取值为目的LAPIC的APIC ID。Logical Mode�
 如果使用Logical Mode寻址模式引用了一组CPU，同时选择了Lowest Priority发送模式，则中断最终会发给这组CPU中优先级最低的CPU。（优先级的确定可参考Intel IA32手册第三册第十章，其中一种方法是依据LAPIC中的TPR寄存器）
 
 ### Pin
-Pin #1通常连接到键盘中断（IRQ1）
+根据手册，IOAPIC的24个中断输入引脚通常如下连接：
 
-Pin #2通常连接到IRQ0
+- Pin #1连接到键盘中断（IRQ1）
+- Pin #2连接到IRQ0
+- Pin #3-#11,#14,#15，分别连接到ISA IRQ[3:7,8#,9:11,14:15]
+- Pin #12连接到鼠标中断（IRQ12/M）
+- Pin #16-#19代表PCI IRQ[0:3]
+- Pin #20-#21代表Motherboard IRQ[0:1]
+- Pin #23代表SMI中断，若Mask掉，则SMI中断会从IOAPIC的#SMIOUT引脚引出，否则会由IOAPIC根据RTE #23转发
 
-Pin #3-#11,#14,#15，通常分别连接到ISA IRQ[3:7,8#,9:11,14:15]
+上述描述代表了PIIX3芯片组时期的典型接法，若要了解现在的芯片组是如何连接这些引脚的，还应查询最新芯片组的datasheet。
 
-Pin #12通常连接到鼠标中断（IRQ12/M）
+值得注意的是，若某个设备（如键盘控制器）的中断信号通过IRQ line连接到PIC，则它也会连接到IOAPIC的中断输入引脚。例如键盘控制器通过IRQ1连接到PIC，同时也通过Pin #1连接到IOAPIC。因此，若PIC和IOAPIC同时启用，可能会造成设备产生一个中断，CPU收到**两次**中断，故必须屏蔽其中一个而只用另一个，通常我们会屏蔽PIC（这可以通过写入0xFF到PIC的OCW1实现）。
 
-Pin #16-#19代表PCI IRQ[0:3]
-
-Pin #20-#21代表Motherboard IRQ[0:1]
-
-Pin #23代表SMI中断，若Mask掉，则SMI中断会从IOAPIC的#SMIOUT引脚引出，否则会由IOAPIC根据RTE #23转发
-
-**注意：** 这里所说的IRQ（如IRQ0、IRQ1），都是从某个设备（如键盘、PIT）发出，并同时连接到PIC和IOAPIC的中断信号线。例如IRQ1既是指PIC的1号输入引脚，也是指连到IOAPIC的同一个中断。因此，若PIC和IOAPIC同时启用，可能会造成设备产生一个中断，CPU收到**两次**中断，故必须屏蔽其中一个而只用另一个，通常我们会屏蔽PIC（这可以通过设置IMCR寄存器完成，该寄存器通过Port IO端口22、23访问，详见MP Spec）。
+事实上，约定俗成地，人们通常将系统中的第一个IOAPIC（如果有多个的话）的前16个Pin和PIC的16个IRQ相对应。也就是说Pin #x和IRQ x中的中断信号相同（0 <= x < 16）。其中有两个例外，一是Master PIC的INTR输出引脚要连接到IOAPIC的Pin #0（这也是约定俗成的要求，MP Spec并未规定PIC的INTR输出一定要连接到IOAPIC），故Pin #0不对应与IRQ0，二是Pin #2对应于IRQ0，这是由于IRQ2是Slave PIC，无需对应于IOAPIC Pin，而Pin #0又没有连到IRQ0，正好将Pin #2和IRQ0连接起来。
 
 ## IOAPIC till ICH9
 随着芯片集成度的提升，IOAPIC芯片已被集成到了南桥内，我们可以从历代南桥手册（Datasheet）中查询到其pin接到的是什么设备，增加了什么功能。此处介绍QEMU模拟的Q35芯片组中的ICH9南桥中的IOAPIC。
