@@ -665,8 +665,7 @@ struct kvm_arch_memory_slot {struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES];     
 };
 ```
 
-slot 保存在 kvm->memslots[as_id]->memslots[id] 中，其中 as_id 为 AddressSpace id (KVM 中只有两个， IO 和 Memory) ，id 为 slot id 。这些结构的内存都在 kvm_create_vm 中就分配好了。这里对其进行初始化。
-
+slot 保存在 kvm->memslots[as_id]->memslots[id] 中，其中 as_id 为 address space id，其实通常的架构都只有一个地址空间，as_id 总是取 0，唯独x86需要两个地址空间，as_id = 0为普通的地址空间，as_id = 1为SMM模式专用的SRAM空间，id 为 slot id 。这些结构的内存都在 kvm_create_vm 中就分配好了。这里对其进行初始化。
 
 
 ### 内存管理单元 (MMU)
