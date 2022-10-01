@@ -69,7 +69,7 @@ Select the newly installed kernel, which should be `4.9.76+`.
     wget http://ftp.sjtu.edu.cn/ubuntu-cd/16.04.7/ubuntu-16.04.7-server-amd64.iso
     cd QEMU
     ./qemu-img create -f qcow2 ubuntu-server.img 10G
-    `qemu-system-x86_64` -m 1024 ubuntu-server.img -cdrom ../ubuntu-16.04.7-server-amd64.iso -enable-kvm
+    qemu-system-x86_64 -m 1024 ubuntu-server.img -cdrom ../ubuntu-16.04.7-server-amd64.iso -enable-kvm
 ```
 
 ## Run GiantVM on a single machine
